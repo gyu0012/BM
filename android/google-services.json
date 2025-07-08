@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "180146100143",
+    "project_id": "balancematch-322fe",
+    "storage_bucket": "balancematch-322fe.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:180146100143:android:ed0199de36715797ecc15a",
+        "android_client_info": {
+          "package_name": "com.BalanceMatch"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCd6JUMR6JQl37av3fxjocqZJefySXeR_0"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
