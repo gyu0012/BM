@@ -3,6 +3,7 @@ import 'dart:ui'; // ImageFilter 사용을 위해 import
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:smooth_page_indicator/smooth_page_indicator.dart';
 import 'package:visibility_detector/visibility_detector.dart';
 import '../../models/user_model.dart';
 import '../../services/auth_service.dart';
@@ -19,12 +20,19 @@ class HomePage extends StatefulWidget {
 class _HomePageState extends State<HomePage> {
   late Future<UserModel?> _myProfileFuture;
   late Future<bool> _canReceiveCardsFuture;
+  final _pageController = PageController(viewportFraction: 0.95);
 
   @override
   void initState() {
     super.initState();
     _loadMyProfile();
     _checkCardStatus();
+  }
+
+  @override
+  void dispose() {
+    _pageController.dispose();
+    super.dispose();
   }
 
   void _loadMyProfile() {
@@ -43,6 +51,25 @@ class _HomePageState extends State<HomePage> {
       _canReceiveCardsFuture = authService.canReceiveWeeklyCards();
     });
   }
+
+  // [신규] 카드 받기 로직을 별도 함수로 분리하여 재사용
+  Future<void> _fetchNewCards() async {
+    final authService = Provider.of<AuthService>(context, listen: false);
+    try {
+      await authService.getWeeklyCards();
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(const SnackBar(content: Text('새로운 카드가 도착했습니다!')));
+      }
+      _checkCardStatus();
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text('카드 받기 실패: $e')));
+      }
+    }
+  }
+
 
   Future<void> _handleRefresh() async {
     setState(() {
@@ -93,10 +120,7 @@ class _HomePageState extends State<HomePage> {
                 },
               ),
               _buildTodayCardsTab(context),
-              // [수정] 불필요한 authService 인자 제거
               _buildRecommendationSection(context),
-              _buildDailyQuestSection(context),
-              const SizedBox(height: 20),
             ],
           ),
         ),
@@ -111,12 +135,9 @@ class _HomePageState extends State<HomePage> {
     double averageScore = scores.isNotEmpty ? totalScore / scores.length : 0.0;
 
     final stats = {
-      "소속": scores['직업'] ?? 0.0,
-      "학력": scores['학력'] ?? 0.0,
-      "외모": scores['외모'] ?? 0.0,
-      "성격": scores['가치관'] ?? 0.0,
-      "자산": scores['자산'] ?? 0.0,
-      "집안": scores['부모님'] ?? 0.0,
+      "소속": scores['직업'] ?? 0.0, "학력": scores['학력'] ?? 0.0,
+      "외모": scores['외모'] ?? 0.0, "성격": scores['가치관'] ?? 0.0,
+      "자산": scores['자산'] ?? 0.0, "집안": scores['부모님'] ?? 0.0,
     };
 
     return Container(
@@ -125,29 +146,27 @@ class _HomePageState extends State<HomePage> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text("내 육각형 정보", style: AppTextStyles.titleM),
+          Text("내 육각형 정보", style: AppTextStyles.titleM.copyWith(color: AppColors.labelPrimary)),
           const SizedBox(height: 24),
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceAround,
             children: [
               SizedBox(
-                width: 120,
-                height: 138,
+                width: 120, height: 138,
                 child: ClipPath(
                   clipper: HexagonClipper(),
                   child: Container(
                     decoration: const BoxDecoration(
                       gradient: LinearGradient(
-                        begin: Alignment.topLeft,
-                        end: Alignment.bottomRight,
+                        begin: Alignment.topLeft, end: Alignment.bottomRight,
                         colors: [Color(0xFFE94057), Color(0xFFF27121)],
                       ),
                     ),
                     child: Column(
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
-                        const Text("종합", style: AppTextStyles.baseM),
-                        Text(averageScore.toStringAsFixed(1), style: AppTextStyles.titleL),
+                        Text("종합", style: AppTextStyles.baseM.copyWith(color: AppColors.labelPrimary)),
+                        Text(averageScore.toStringAsFixed(1), style: AppTextStyles.titleL.copyWith(color: AppColors.labelPrimary)),
                       ],
                     ),
                   ),
@@ -156,20 +175,20 @@ class _HomePageState extends State<HomePage> {
               const SizedBox(width: 24),
               Expanded(
                 child: GridView.count(
-                  crossAxisCount: 2,
-                  shrinkWrap: true,
+                  crossAxisCount: 2, shrinkWrap: true,
                   physics: const NeverScrollableScrollPhysics(),
-                  childAspectRatio: 2.5,
-                  mainAxisSpacing: 16,
-                  crossAxisSpacing: 16,
+                  childAspectRatio: 2.5, mainAxisSpacing: 16, crossAxisSpacing: 16,
                   children: stats.entries.map((entry) {
-                    return Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(entry.key, style: AppTextStyles.baseS.copyWith(color: AppColors.labelSecondary)),
-                        const SizedBox(height: 4),
-                        Text((entry.value / 10).toStringAsFixed(1), style: AppTextStyles.baseL.copyWith(color: AppColors.labelPrimary)),
-                      ],
+                    return FittedBox(
+                      fit: BoxFit.scaleDown, alignment: Alignment.centerLeft,
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(entry.key, style: AppTextStyles.baseS.copyWith(color: AppColors.labelSecondary)),
+                          const SizedBox(height: 4),
+                          Text((entry.value / 10).toStringAsFixed(1), style: AppTextStyles.baseL.copyWith(color: AppColors.labelPrimary)),
+                        ],
+                      ),
                     );
                   }).toList(),
                 ),
@@ -181,109 +200,140 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
-  // 컴포넌트 3: '오늘의 카드' 탭
+  // '오늘의 카드' 탭
   Widget _buildTodayCardsTab(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 24),
+      padding: const EdgeInsets.fromLTRB(24, 8, 16, 8),
       decoration: const BoxDecoration(
         color: AppColors.backgroundPrimary,
         border: Border(bottom: BorderSide(color: AppColors.separatorPrimary, width: 1)),
       ),
-      child: Text(
-        "오늘의 카드",
-        style: AppTextStyles.baseM.copyWith(color: AppColors.corePrimary),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Text("오늘의 카드", style: AppTextStyles.baseM.copyWith(color: AppColors.corePrimary)),
+          // [수정] 기존 버튼과 테스트 버튼을 Row로 묶음
+          Row(
+            children: [
+              _buildGetCardsButtonSmall(),
+              const SizedBox(width: 8),
+              _buildTestModeButton(),
+            ],
+          )
+        ],
       ),
     );
   }
 
-  // 컴포넌트 4: 프로필 카드 목록 (기존 로직과 새 UI 결합)
+  // '오늘의 카드' 탭 우측에 들어갈 작은 카드 받기 버튼
+  Widget _buildGetCardsButtonSmall() {
+    return FutureBuilder<bool>(
+      future: _canReceiveCardsFuture,
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const SizedBox(width: 24, height: 24, child: CircularProgressIndicator(strokeWidth: 2.0));
+        }
+
+        final bool canReceive = snapshot.data ?? false;
+
+        return TextButton.icon(
+          onPressed: canReceive ? _fetchNewCards : null,
+          icon: Icon(Icons.card_giftcard_rounded, size: 16),
+          label: Text(canReceive ? "카드 받기" : "다음 주"),
+          style: TextButton.styleFrom(
+            foregroundColor: canReceive ? AppColors.corePrimary : AppColors.labelSecondaryDark,
+            textStyle: AppTextStyles.footnote,
+          ),
+        );
+      },
+    );
+  }
+
+  // [신규] 테스트 모드 버튼
+  Widget _buildTestModeButton() {
+    return OutlinedButton(
+      onPressed: _fetchNewCards,
+      child: const Text("테스트"),
+      style: OutlinedButton.styleFrom(
+        foregroundColor: AppColors.coreSecondary,
+        side: BorderSide(color: AppColors.coreSecondary.withOpacity(0.5)),
+        textStyle: AppTextStyles.footnote,
+        padding: const EdgeInsets.symmetric(horizontal: 8),
+        minimumSize: Size(0, 30), // 버튼의 최소 높이 조절
+      ),
+    );
+  }
+
+  // 프로필 카드 목록
   Widget _buildRecommendationSection(BuildContext context) {
-    final authService = Provider.of<AuthService>(context, listen: false);
     return Container(
       color: AppColors.backgroundPrimary,
       padding: const EdgeInsets.symmetric(vertical: 20),
-      child: FutureBuilder<bool>(
-        future: _canReceiveCardsFuture,
-        builder: (context, snapshot) {
-          if (snapshot.connectionState == ConnectionState.waiting) {
-            return const SizedBox(height: 280, child: Center(child: CircularProgressIndicator()));
-          }
-          if (snapshot.data == true) {
-            return _buildGetCardsButton(context, authService);
-          }
-          return _buildRecommendationList(authService);
-        },
-      ),
-    );
-  }
-
-  // 카드 받기 버튼
-  Widget _buildGetCardsButton(BuildContext context, AuthService authService) {
-    return SizedBox(
-      height: 280,
-      child: Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            const Text('이번 주 추천 프로필 카드를 받아보세요!'),
-            const SizedBox(height: 16),
-            ElevatedButton(
-              onPressed: () async {
-                try {
-                  await authService.getWeeklyCards();
-                  ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('새로운 카드가 도착했습니다!')));
-                  _checkCardStatus();
-                } catch (e) {
-                  ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('카드 받기 실패: $e')));
-                }
-              },
-              child: const Text('프로필 카드 받기'),
-            ),
-          ],
-        ),
-      ),
+      child: _buildRecommendationList(context),
     );
   }
 
   // 추천 카드 리스트
-  Widget _buildRecommendationList(AuthService authService) {
+  Widget _buildRecommendationList(BuildContext context) {
     return FutureBuilder<List<String>>(
-      future: authService.getBlockedUserIds(),
+      future: Provider.of<AuthService>(context, listen: false).getBlockedUserIds(),
       builder: (context, blockedUsersSnapshot) {
         if (!blockedUsersSnapshot.hasData) {
-          return const SizedBox(height: 280, child: Center(child: CircularProgressIndicator()));
+          return const SizedBox(height: 400, child: Center(child: CircularProgressIndicator()));
         }
         final blockedUserIds = blockedUsersSnapshot.data!;
 
         return StreamBuilder<List<Recommendation>>(
-          stream: authService.getRecommendedUsers(),
+          stream: Provider.of<AuthService>(context, listen: false).getRecommendedUsers(),
           builder: (context, snapshot) {
             if (snapshot.connectionState == ConnectionState.waiting) {
-              return const SizedBox(height: 280, child: Center(child: CircularProgressIndicator()));
+              return const SizedBox(height: 424, child: Center(child: CircularProgressIndicator()));
             }
-            if (!snapshot.hasData || snapshot.data!.isEmpty) {
-              return const SizedBox(
-                height: 280,
-                child: Center(child: Text("도착한 카드가 없습니다.\n다음 주 월요일을 기다려주세요.")),
-              );
-            }
-            final recommendations = snapshot.data!;
-            return SizedBox(
-              height: 280,
-              child: ListView.builder(
-                scrollDirection: Axis.horizontal,
-                padding: const EdgeInsets.symmetric(horizontal: 16),
-                itemCount: recommendations.length,
-                itemBuilder: (context, index) {
-                  final recommendation = recommendations[index];
-                  final isBlocked = blockedUserIds.contains(recommendation.user.uid);
-                  return _ProfileCard(
-                    recommendation: recommendation,
-                    isBlocked: isBlocked,
-                    isBlurred: index > 1, // 임시 로직: 2개 이후 카드는 블러 처리
-                  );
-                },
-              ),
+            final recommendations = snapshot.data ?? [];
+
+            return Column(
+              children: [
+                SizedBox(
+                  height: 400,
+                  child: PageView.builder(
+                    controller: _pageController,
+                    itemCount: 5,
+                    itemBuilder: (context, index) {
+                      Widget card;
+
+                      if (index == 4) {
+                        card = _buildSpecialMessageCard();
+                      } else if (index < recommendations.length) {
+                        final recommendation = recommendations[index];
+                        final isBlocked = blockedUserIds.contains(recommendation.user.uid);
+                        card = _ProfileCard(
+                          recommendation: recommendation,
+                          isBlocked: isBlocked,
+                          isBlurred: index > 1,
+                        );
+                      } else {
+                        card = _buildPlaceholderCard();
+                      }
+
+                      return Container(
+                        margin: const EdgeInsets.symmetric(horizontal: 4.0),
+                        child: card,
+                      );
+                    },
+                  ),
+                ),
+                const SizedBox(height: 16),
+                SmoothPageIndicator(
+                  controller: _pageController,
+                  count: 5,
+                  effect: ExpandingDotsEffect(
+                    dotHeight: 8,
+                    dotWidth: 8,
+                    activeDotColor: AppColors.corePrimary,
+                    dotColor: AppColors.separatorPrimary,
+                  ),
+                ),
+              ],
             );
           },
         );
@@ -291,13 +341,48 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
-  // 컴포넌트 5: 데일리 퀘스트 섹션
-  Widget _buildDailyQuestSection(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 20),
-      child: Text(
-        "데일리 퀘스트",
-        style: AppTextStyles.titleM.copyWith(color: AppColors.labelPrimaryDark),
+  // 5번째 페이지에 표시될 특별 메시지 카드
+  Widget _buildSpecialMessageCard() {
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(16),
+      child: Container(
+        decoration: const BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [AppColors.corePrimary, AppColors.coreSecondary],
+          ),
+        ),
+        child: Center(
+          child: Padding(
+            padding: const EdgeInsets.all(16.0),
+            child: Text(
+              "매주 월요일 오전 11시\n새로운 프로필 카드가 나옵니다!",
+              textAlign: TextAlign.center,
+              style: AppTextStyles.baseL.copyWith(
+                color: AppColors.labelPrimary,
+                height: 1.5,
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  // 빈 슬롯에 표시될 플레이스홀더 카드
+  Widget _buildPlaceholderCard() {
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(16.0),
+      child: Container(
+        color: AppColors.backgroundSecondary,
+        child: const Center(
+          child: Icon(
+            Icons.hourglass_empty_rounded,
+            color: AppColors.labelSecondaryDark,
+            size: 50,
+          ),
+        ),
       ),
     );
   }
@@ -345,38 +430,31 @@ class _ProfileCard extends StatelessWidget {
         }
       },
       child: Container(
-        width: 180,
-        margin: const EdgeInsets.only(right: 12),
         child: ClipRRect(
           borderRadius: BorderRadius.circular(16),
           child: Stack(
             fit: StackFit.expand,
             children: [
-              // 배경 이미지
               Image.network(
                 user.profileImageUrls?.first ?? "https://placehold.co/180x280/e2e8f0/333333?text=No+Image",
                 fit: BoxFit.cover,
-                errorBuilder: (c, e, s) => Container(color: Colors.grey.shade300),
+                errorBuilder: (c, e, s) => Container(color: AppColors.backgroundSecondary),
               ),
-              // 블러 처리
               if (isBlurred)
                 BackdropFilter(
                   filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
                   child: Container(color: Colors.black.withOpacity(0.1)),
                 ),
-              // 하단 정보 그라데이션
               if (!isBlurred)
                 Container(
                   decoration: BoxDecoration(
                     gradient: LinearGradient(
-                      begin: Alignment.topCenter,
-                      end: Alignment.bottomCenter,
+                      begin: Alignment.topCenter, end: Alignment.bottomCenter,
                       colors: [Colors.transparent, Colors.black.withOpacity(0.8)],
                       stops: const [0.5, 1.0],
                     ),
                   ),
                 ),
-              // 콘텐츠
               if (isBlurred)
                 Center(
                   child: ElevatedButton(
@@ -404,7 +482,7 @@ class _ProfileCard extends StatelessWidget {
         mainAxisAlignment: MainAxisAlignment.end,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text("${user.height ?? '??'}세 ${user.jobTitle ?? '???'} ${user.residenceArea ?? '???'}", style: AppTextStyles.baseM.copyWith(color: AppColors.labelPrimary)),
+          Text("${user.height ?? '??'}cm ${user.jobTitle ?? '???'} ${user.residenceArea ?? '???'}", style: AppTextStyles.baseM.copyWith(color: AppColors.labelPrimary)),
           const SizedBox(height: 8),
           Row(
             children: [
@@ -413,8 +491,6 @@ class _ProfileCard extends StatelessWidget {
               _buildBadge("뛰어난 외모"),
             ],
           ),
-          const SizedBox(height: 8),
-          Text(user.nickname ?? '이름 없음', style: AppTextStyles.titleL.copyWith(color: AppColors.labelPrimary)),
           const SizedBox(height: 12),
           SizedBox(
             width: double.infinity,
